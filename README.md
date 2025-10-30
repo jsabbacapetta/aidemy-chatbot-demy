@@ -127,7 +127,7 @@ Il chatbot incarna l'archetipo di **"Angelo Custode con elementi del Mago"**:
 
 ### Core Technologies
 - **Orchestration**: [n8n](https://n8n.io) (self-hosted su VPS)
-- **LLM**: [OpenRouter](https://openrouter.ai) GPT-4o
+- **LLM & Embeddings**: [OpenRouter](https://openrouter.ai) - GPT-4o + text-embedding-3-small
 - **Vector DB**: [Qdrant](https://qdrant.tech) (Docker)
 - **Database**: PostgreSQL
 - **Frontend**: Vanilla JavaScript (no framework, max performance)
@@ -154,7 +154,7 @@ Il chatbot incarna l'archetipo di **"Angelo Custode con elementi del Mago"**:
 - **Docker** e **Docker Compose** installati
 - **n8n** installato e configurato
 - **Account necessari**:
-  - OpenRouter (per GPT-4o)
+  - OpenRouter (per GPT-4o e embeddings) - Un solo account!
   - Google Cloud Platform (per Drive e Calendar API)
   - SMTP o SendGrid (per email)
 

@@ -1,0 +1,214 @@
+{
+  "name": "Aidemy Chat Handler",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "chat",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "aidemy-chat-webhook"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Extract and validate input\nconst body = $input.item.json.body;\n\nreturn {\n  session_id: body.session_id || '',\n  message: body.message || '',\n  user_id: body.user_id || body.session_id,\n  timestamp: body.timestamp || new Date().toISOString()\n};"
+      },
+      "name": "Extract Input",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Get or create conversation\nINSERT INTO conversations (session_id, user_id, started_at, last_message_at, message_count)\nVALUES ($1, $2, NOW(), NOW(), 0)\nON CONFLICT (session_id) \nDO UPDATE SET \n  last_message_at = NOW(),\n  message_count = conversations.message_count + 1\nRETURNING *;",
+        "additionalFields": {
+          "values": "={{$json.session_id}},={{$json.user_id}}"
+        }
+      },
+      "name": "Get/Create Conversation",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [650, 300],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Demy PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Save user message\nINSERT INTO messages (conversation_id, role, content, created_at)\nVALUES ($1, 'user', $2, NOW())\nRETURNING *;",
+        "additionalFields": {
+          "values": "={{$json.id}},={{$node['Extract Input'].json.message}}"
+        }
+      },
+      "name": "Save User Message",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Get conversation history (last 10 messages)\nSELECT role, content, created_at\nFROM messages\nWHERE conversation_id = $1\nORDER BY created_at DESC\nLIMIT 10;",
+        "additionalFields": {
+          "values": "={{$node['Get/Create Conversation'].json.id}}"
+        }
+      },
+      "name": "Get Chat History",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://demy-qdrant:6333/collections/aidemy_knowledge/points/search",
+        "jsonParameters": true,
+        "bodyParametersJson": "={\n  \"vector\": {{ $json.query_embedding }},\n  \"limit\": 5,\n  \"with_payload\": true\n}",
+        "options": {}
+      },
+      "name": "Qdrant Similarity Search",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1250, 300],
+      "notes": "Search for relevant knowledge base chunks"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Format context from Qdrant results\nconst results = $input.item.json.result || [];\n\nconst context = results.map((r, i) => {\n  return `[${i+1}] Fonte: ${r.payload.source_file}\\n${r.payload.text}`;\n}).join('\\n\\n');\n\nreturn { context };"
+      },
+      "name": "Format Context",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1450, 300]
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "operation": "create",
+        "modelId": "openai/gpt-4o",
+        "messages": {
+          "messageValues": [
+            {
+              "role": "system",
+              "content": "={{$node['Load System Prompt'].json.system_prompt}}"
+            },
+            {
+              "role": "user",
+              "content": "=CONTEXT:\\n{{$json.context}}\\n\\nCHAT HISTORY:\\n{{$node['Get Chat History'].json}}\\n\\nUSER MESSAGE:\\n{{$node['Extract Input'].json.message}}"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.7,
+          "maxTokens": 500
+        }
+      },
+      "name": "Call GPT-4o",
+      "type": "n8n-nodes-base.openRouter",
+      "typeVersion": 1,
+      "position": [1650, 300],
+      "credentials": {
+        "openRouterApi": {
+          "id": "2",
+          "name": "OpenRouter API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Save assistant message\nINSERT INTO messages (conversation_id, role, content, created_at)\nVALUES ($1, 'assistant', $2, NOW())\nRETURNING *;",
+        "additionalFields": {
+          "values": "={{$node['Get/Create Conversation'].json.id}},={{$json.choices[0].message.content}}"
+        }
+      },
+      "name": "Save Assistant Message",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [1850, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"message\": \"{{$json.choices[0].message.content}}\",\n  \"session_id\": \"{{$node['Extract Input'].json.session_id}}\",\n  \"timestamp\": \"{{new Date().toISOString()}}\"\n}"
+      },
+      "name": "Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2050, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Load system prompt from YAML config\nconst fs = require('fs');\nconst yaml = require('yaml');\n\nconst config = yaml.parse(\n  fs.readFileSync('/app/config/prompts.yaml', 'utf8')\n);\n\nreturn config;"
+      },
+      "name": "Load System Prompt",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [850, 150],
+      "notes": "Load prompts from config/prompts.yaml"
+    },
+    {
+      "parameters": {
+        "workflowId": "lead-qualifier-workflow-id"
+      },
+      "name": "Trigger Lead Qualification",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [2050, 450],
+      "notes": "Async call to lead qualifier"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [[{ "node": "Extract Input", "type": "main", "index": 0 }]]
+    },
+    "Extract Input": {
+      "main": [[{ "node": "Get/Create Conversation", "type": "main", "index": 0 }]]
+    },
+    "Get/Create Conversation": {
+      "main": [[
+        { "node": "Save User Message", "type": "main", "index": 0 },
+        { "node": "Load System Prompt", "type": "main", "index": 0 }
+      ]]
+    },
+    "Save User Message": {
+      "main": [[{ "node": "Get Chat History", "type": "main", "index": 0 }]]
+    },
+    "Get Chat History": {
+      "main": [[{ "node": "Qdrant Similarity Search", "type": "main", "index": 0 }]]
+    },
+    "Qdrant Similarity Search": {
+      "main": [[{ "node": "Format Context", "type": "main", "index": 0 }]]
+    },
+    "Format Context": {
+      "main": [[{ "node": "Call GPT-4o", "type": "main", "index": 0 }]]
+    },
+    "Call GPT-4o": {
+      "main": [[{ "node": "Save Assistant Message", "type": "main", "index": 0 }]]
+    },
+    "Save Assistant Message": {
+      "main": [[
+        { "node": "Response", "type": "main", "index": 0 },
+        { "node": "Trigger Lead Qualification", "type": "main", "index": 0 }
+      ]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2025-01-30T00:00:00.000Z",
+  "versionId": "1"
+}

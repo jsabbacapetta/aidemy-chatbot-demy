@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aidemy Chat Widget</title>
+    <link rel="stylesheet" href="chat-widget.css">
+</head>
+<body>
+    <!-- Chat Widget Container -->
+    <div id="aidemy-chat-widget">
+        <!-- Minimized Button -->
+        <div id="chat-button" class="chat-button">
+            <svg class="chat-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M20 2H4C2.9 2 2 2.9 2 4V22L6 18H20C21.1 18 22 17.1 22 16V4C22 2.9 21.1 2 20 2ZM20 16H6L4 18V4H20V16Z" fill="currentColor"/>
+                <path d="M7 9H17V11H7V9ZM7 12H14V14H7V12Z" fill="currentColor"/>
+            </svg>
+            <span class="notification-badge" style="display: none;">1</span>
+        </div>
+
+        <!-- Expanded Chat Window -->
+        <div id="chat-window" class="chat-window hidden">
+            <!-- Header -->
+            <div class="chat-header">
+                <div class="chat-header-info">
+                    <div class="avatar">
+                        <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <circle cx="16" cy="16" r="16" fill="#4A90E2"/>
+                            <path d="M16 8C13.79 8 12 9.79 12 12C12 14.21 13.79 16 16 16C18.21 16 20 14.21 20 12C20 9.79 18.21 8 16 8ZM16 20C12.67 20 6 21.67 6 25V26H26V25C26 21.67 19.33 20 16 20Z" fill="white"/>
+                        </svg>
+                    </div>
+                    <div class="header-text">
+                        <h3>Demy</h3>
+                        <p class="status">Assistente Aidemy</p>
+                    </div>
+                </div>
+                <button id="close-chat" class="close-button" aria-label="Chiudi chat">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M19 6.41L17.59 5L12 10.59L6.41 5L5 6.41L10.59 12L5 17.59L6.41 19L12 13.41L17.59 19L19 17.59L13.41 12L19 6.41Z" fill="currentColor"/>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Messages Container -->
+            <div id="chat-messages" class="chat-messages">
+                <!-- Messages will be appended here -->
+            </div>
+
+            <!-- Quick Replies (shown initially) -->
+            <div id="quick-replies" class="quick-replies">
+                <button class="quick-reply-btn" data-message="Come funzionano i vostri servizi?">
+                    Come funzionano i vostri servizi?
+                </button>
+                <button class="quick-reply-btn" data-message="Quali sono i costi indicativi?">
+                    Quali sono i costi indicativi?
+                </button>
+                <button class="quick-reply-btn" data-message="Voglio prenotare una call">
+                    Voglio prenotare una call
+                </button>
+                <button class="quick-reply-btn" data-message="Avete case study?">
+                    Avete case study?
+                </button>
+            </div>
+
+            <!-- Input Area -->
+            <div class="chat-input-container">
+                <form id="chat-form" class="chat-form">
+                    <input
+                        type="text"
+                        id="chat-input"
+                        class="chat-input"
+                        placeholder="Scrivi un messaggio..."
+                        autocomplete="off"
+                        aria-label="Messaggio chat"
+                    />
+                    <button type="submit" class="send-button" aria-label="Invia messaggio">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M2.01 21L23 12L2.01 3L2 10L17 12L2 14L2.01 21Z" fill="currentColor"/>
+                        </svg>
+                    </button>
+                </form>
+                <div class="powered-by">
+                    Powered by <a href="https://aidemy.it" target="_blank">Aidemy</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="config.js"></script>
+    <script src="chat-widget.js"></script>
+</body>
+</html>

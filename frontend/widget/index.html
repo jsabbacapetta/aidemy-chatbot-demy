@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aidemy Chat Widget - Demo</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            padding: 40px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        h1 { color: #4A90E2; }
+        .info { background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0; }
+        code { background: #e8e8e8; padding: 2px 6px; border-radius: 3px; }
+    </style>
+</head>
+<body>
+    <h1>🤖 Aidemy Chat Widget - Demo Page</h1>
+
+    <div class="info">
+        <h2>Welcome to the Aidemy Chatbot Demo</h2>
+        <p>This page demonstrates the Aidemy chat widget in action.</p>
+        <p>Click the blue chat button in the bottom-right corner to start a conversation with Demy!</p>
+    </div>
+
+    <div class="info">
+        <h3>Features:</h3>
+        <ul>
+            <li>💬 Natural conversation powered by GPT-4o</li>
+            <li>🎯 Automatic lead qualification (BANEC scoring)</li>
+            <li>📅 Direct calendar booking for Strategic Exploration calls</li>
+            <li>📧 Personalized documentation delivery</li>
+            <li>🧠 RAG-powered knowledge retrieval</li>
+        </ul>
+    </div>
+
+    <div class="info">
+        <h3>Try asking:</h3>
+        <ul>
+            <li>"Come funzionano i vostri servizi?"</li>
+            <li>"Quali sono i costi indicativi?"</li>
+            <li>"Voglio prenotare una call"</li>
+            <li>"Avete case study?"</li>
+        </ul>
+    </div>
+
+    <!-- Chat Widget -->
+    <link rel="stylesheet" href="chat-widget.css">
+    <div id="aidemy-chat-widget-container">
+        <!-- Widget will be injected here -->
+    </div>
+    <script src="config.js"></script>
+    <script src="chat-widget.js"></script>
+</body>
+</html>
