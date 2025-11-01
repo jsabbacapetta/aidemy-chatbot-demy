@@ -180,6 +180,21 @@ docker compose down
 docker compose up -d
 ```
 
+### "there is no parameter $1" error in PostgreSQL nodes:
+Se dopo aver importato il workflow ottieni questo errore, significa che la sintassi dei parametri non è compatibile con la tua versione di n8n:
+
+1. **Edit the PostgreSQL nodes manually in n8n UI**:
+   - Click on each PostgreSQL node
+   - In "Query Parameters", set the mode to "Independently"
+   - Add parameters one by one: `$json.session_id`, `$json.user_id`, etc.
+
+Oppure:
+
+2. **Test the workflow with a simple query first**:
+   - Create a test PostgreSQL node
+   - Query: `SELECT 1`
+   - If that works, gradually add parameters
+
 ## Next Steps
 
 Now that it works:

@@ -6,6 +6,13 @@ const AidemyChatConfig = {
     // n8n webhook URL
     webhookUrl: 'https://n8n.jacoposabbacapetta.it/webhook/chat',
 
+    // Optional: headers per autenticazione Webhook n8n (Header Auth)
+    // Imposta un token concordato con n8n (es. Bearer <TOKEN>)
+    webhookHeaders: {
+        // Esempio: sostituisci con il tuo token
+        // "Authorization": "Bearer YOUR_SECURE_TOKEN"
+    },
+
     // Widget appearance
     primaryColor: '#4A90E2',
     position: 'bottom-right', // 'bottom-right' or 'bottom-left'

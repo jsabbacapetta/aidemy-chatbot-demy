@@ -17,7 +17,9 @@
             this.init();
         }
 
-        init() {
+        async init() {
+            await this.ensureMarkupLoaded();
+
             this.chatButton = document.getElementById('chat-button');
             this.chatWindow = document.getElementById('chat-window');
             this.closeButton = document.getElementById('close-chat');
@@ -34,6 +36,29 @@
                     sessionId: this.sessionId,
                     historyLength: this.conversationHistory.length
                 });
+            }
+        }
+
+        async ensureMarkupLoaded() {
+            if (document.getElementById('chat-button')) return;
+
+            const container = document.getElementById('aidemy-chat-widget-container');
+            if (!container) return;
+
+            try {
+                const resp = await fetch('chat-widget.html', { cache: 'no-cache' });
+                if (!resp.ok) throw new Error('Failed to load chat-widget.html');
+                const htmlText = await resp.text();
+
+                const temp = document.createElement('div');
+                temp.innerHTML = htmlText;
+                const widgetRoot = temp.querySelector('#aidemy-chat-widget') || temp;
+                container.innerHTML = '';
+                container.appendChild(widgetRoot.cloneNode(true));
+            } catch (e) {
+                if (this.config.debug) {
+                    console.error('Errore caricando il markup del widget:', e);
+                }
             }
         }
 
@@ -175,9 +200,10 @@
             try {
                 const response = await fetch(this.config.webhookUrl, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
+                    headers: Object.assign(
+                        { 'Content-Type': 'application/json' },
+                        this.config.webhookHeaders || {}
+                    ),
                     body: JSON.stringify(payload),
                     signal: controller.signal
                 });
