@@ -1,0 +1,107 @@
+{
+  "name": "Aidemy RAG Processor",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "rag-processor",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "aidemy-rag-processor"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Extract input data\nconst body = $input.item.json.body || $input.item.json;\n\nreturn {\n  query: body.query || '',\n  limit: body.limit || 5,\n  threshold: body.threshold || 0.7,\n  collection: body.collection || 'aidemy_knowledge'\n};"
+      },
+      "name": "Extract Input",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/embeddings",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openRouterApi",
+        "jsonParameters": true,
+        "bodyParametersJson": "={\n  \"model\": \"openai/text-embedding-3-small\",\n  \"input\": \"{{ $json.query }}\"\n}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "name": "Generate Query Embedding",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [650, 300],
+      "credentials": {
+        "openRouterApi": {
+          "id": "2",
+          "name": "OpenRouter API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://demy-qdrant:6333/collections/{{$node['Extract Input'].json.collection}}/points/search",
+        "jsonParameters": true,
+        "bodyParametersJson": "={\n  \"vector\": {{ JSON.stringify($json.data[0].embedding) }},\n  \"limit\": {{$node['Extract Input'].json.limit}},\n  \"score_threshold\": {{$node['Extract Input'].json.threshold}},\n  \"with_payload\": true,\n  \"with_vector\": false\n}",
+        "options": {}
+      },
+      "name": "Search Qdrant",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Format RAG results\nconst results = $input.item.json.result || [];\n\nconst formatted = results.map((r, i) => {\n  return {\n    rank: i + 1,\n    score: r.score,\n    text: r.payload.text,\n    source_file: r.payload.source_file,\n    chunk_index: r.payload.chunk_index,\n    indexed_at: r.payload.indexed_at\n  };\n});\n\nconst context = formatted.map((r, i) => {\n  return `[${i+1}] Fonte: ${r.source_file}\\nRelevanza: ${(r.score * 100).toFixed(1)}%\\n\\n${r.text}`;\n}).join('\\n\\n---\\n\\n');\n\nreturn {\n  query: $node['Extract Input'].json.query,\n  results_count: formatted.length,\n  results: formatted,\n  formatted_context: context\n};"
+      },
+      "name": "Format Results",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json, null, 2) }}"
+      },
+      "name": "Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1250, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [[{ "node": "Extract Input", "type": "main", "index": 0 }]]
+    },
+    "Extract Input": {
+      "main": [[{ "node": "Generate Query Embedding", "type": "main", "index": 0 }]]
+    },
+    "Generate Query Embedding": {
+      "main": [[{ "node": "Search Qdrant", "type": "main", "index": 0 }]]
+    },
+    "Search Qdrant": {
+      "main": [[{ "node": "Format Results", "type": "main", "index": 0 }]]
+    },
+    "Format Results": {
+      "main": [[{ "node": "Response", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2025-01-30T00:00:00.000Z",
+  "versionId": "1"
+}

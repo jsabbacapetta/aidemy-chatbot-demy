@@ -1,0 +1,249 @@
+{
+  "name": "Aidemy Knowledge Sync",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 2 * * 0"
+            }
+          ]
+        }
+      },
+      "name": "Cron Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "notes": "Runs every Sunday at 2:00 AM"
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "operation": "list",
+        "driveId": {
+          "__rl": true,
+          "value": "={{$env.GOOGLE_DRIVE_FOLDER_ID}}",
+          "mode": "list",
+          "cachedResultName": "Aidemy Knowledge Base"
+        },
+        "options": {
+          "fields": [
+            "id",
+            "name",
+            "mimeType",
+            "modifiedTime",
+            "size"
+          ]
+        }
+      },
+      "name": "List Drive Files",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [450, 300],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "5",
+          "name": "Google Drive"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Filter for supported document types\nconst supportedTypes = [\n  'application/pdf',\n  'application/vnd.google-apps.document',\n  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',\n  'text/plain',\n  'text/markdown'\n];\n\nconst items = $input.all();\nconst filtered = items.filter(item => {\n  return supportedTypes.includes(item.json.mimeType);\n});\n\nreturn filtered;"
+      },
+      "name": "Filter Supported Files",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "operation": "download",
+        "fileId": "={{$json.id}}",
+        "options": {
+          "googleFileConversion": {
+            "conversion": {
+              "doConversion": true,
+              "targetFormat": "text/plain"
+            }
+          }
+        }
+      },
+      "name": "Download File",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [850, 300],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "5",
+          "name": "Google Drive"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Chunk document into 500-token pieces with 50-token overlap\nconst text = $input.item.binary.data.toString('utf-8');\nconst fileName = $node['Filter Supported Files'].json.name;\nconst fileId = $node['Filter Supported Files'].json.id;\n\n// Simple word-based chunking (approximate)\n// 1 token ≈ 0.75 words\nconst wordsPerChunk = Math.floor(500 * 0.75); // ~375 words\nconst overlapWords = Math.floor(50 * 0.75);   // ~37 words\n\nconst words = text.split(/\\s+/);\nconst chunks = [];\n\nfor (let i = 0; i < words.length; i += (wordsPerChunk - overlapWords)) {\n  const chunk = words.slice(i, i + wordsPerChunk).join(' ');\n  if (chunk.trim().length > 50) { // Skip very short chunks\n    chunks.push({\n      text: chunk,\n      source_file: fileName,\n      source_id: fileId,\n      chunk_index: chunks.length\n    });\n  }\n}\n\nreturn chunks;"
+      },
+      "name": "Chunk Document",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/embeddings",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openRouterApi",
+        "jsonParameters": true,
+        "bodyParametersJson": "={\n  \"model\": \"openai/text-embedding-3-small\",\n  \"input\": \"{{ $json.text }}\"\n}",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 10,
+              "batchInterval": 1000
+            }
+          }
+        }
+      },
+      "name": "Generate Embeddings",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1250, 300],
+      "credentials": {
+        "openRouterApi": {
+          "id": "2",
+          "name": "OpenRouter API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Prepare Qdrant point\nconst embedding = $input.item.json.data[0].embedding;\nconst chunkData = $node['Chunk Document'].json;\n\nconst pointId = `${chunkData.source_id}_${chunkData.chunk_index}`;\n\nreturn {\n  id: pointId,\n  vector: embedding,\n  payload: {\n    text: chunkData.text,\n    source_file: chunkData.source_file,\n    source_id: chunkData.source_id,\n    chunk_index: chunkData.chunk_index,\n    indexed_at: new Date().toISOString()\n  }\n};"
+      },
+      "name": "Prepare Qdrant Point",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1450, 300]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "http://demy-qdrant:6333/collections/aidemy_knowledge/points",
+        "jsonParameters": true,
+        "bodyParametersJson": "={\n  \"points\": [\n    {\n      \"id\": \"{{ $json.id }}\",\n      \"vector\": {{ JSON.stringify($json.vector) }},\n      \"payload\": {{ JSON.stringify($json.payload) }}\n    }\n  ]\n}",
+        "options": {}
+      },
+      "name": "Upload to Qdrant",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1650, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Aggregate results\nconst items = $input.all();\n\nconst summary = {\n  total_files: new Set(items.map(i => i.json.payload?.source_file)).size,\n  total_chunks: items.length,\n  synced_at: new Date().toISOString(),\n  status: 'completed'\n};\n\nreturn summary;"
+      },
+      "name": "Aggregate Results",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1850, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Log sync operation\nINSERT INTO knowledge_sync_log (\n  files_synced,\n  chunks_created,\n  status,\n  synced_at\n) VALUES (\n  $1, $2, $3, $4\n)\nRETURNING *;",
+        "additionalFields": {
+          "values": "={{$json.total_files}},={{$json.total_chunks}},={{$json.status}},={{$json.synced_at}}"
+        }
+      },
+      "name": "Log Sync",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [2050, 300],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Demy PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": "={{$env.EMAIL_SENDER_WORKFLOW_ID}}",
+        "fieldsUi": {
+          "values": [
+            {
+              "name": "template",
+              "value": "sync_report"
+            },
+            {
+              "name": "recipient",
+              "value": "j.sabbacapetta@gmail.com"
+            },
+            {
+              "name": "files_synced",
+              "value": "={{$json.total_files}}"
+            },
+            {
+              "name": "chunks_created",
+              "value": "={{$json.total_chunks}}"
+            },
+            {
+              "name": "status",
+              "value": "={{$json.status}}"
+            }
+          ]
+        }
+      },
+      "name": "Send Sync Report",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [2250, 300],
+      "notes": "Optional: notify when sync completes"
+    }
+  ],
+  "connections": {
+    "Cron Trigger": {
+      "main": [[{ "node": "List Drive Files", "type": "main", "index": 0 }]]
+    },
+    "List Drive Files": {
+      "main": [[{ "node": "Filter Supported Files", "type": "main", "index": 0 }]]
+    },
+    "Filter Supported Files": {
+      "main": [[{ "node": "Download File", "type": "main", "index": 0 }]]
+    },
+    "Download File": {
+      "main": [[{ "node": "Chunk Document", "type": "main", "index": 0 }]]
+    },
+    "Chunk Document": {
+      "main": [[{ "node": "Generate Embeddings", "type": "main", "index": 0 }]]
+    },
+    "Generate Embeddings": {
+      "main": [[{ "node": "Prepare Qdrant Point", "type": "main", "index": 0 }]]
+    },
+    "Prepare Qdrant Point": {
+      "main": [[{ "node": "Upload to Qdrant", "type": "main", "index": 0 }]]
+    },
+    "Upload to Qdrant": {
+      "main": [[{ "node": "Aggregate Results", "type": "main", "index": 0 }]]
+    },
+    "Aggregate Results": {
+      "main": [[{ "node": "Log Sync", "type": "main", "index": 0 }]]
+    },
+    "Log Sync": {
+      "main": [[{ "node": "Send Sync Report", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2025-01-30T00:00:00.000Z",
+  "versionId": "1"
+}

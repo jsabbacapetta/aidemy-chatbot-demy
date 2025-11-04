@@ -1,0 +1,221 @@
+{
+  "name": "Aidemy Calendar Booking",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "calendar-booking",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "aidemy-calendar-booking"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Extract input data\nconst body = $input.item.json.body || $input.item.json;\n\nreturn {\n  action: body.action || 'create',\n  lead_name: body.lead_name || '',\n  lead_email: body.lead_email || '',\n  company: body.company || '',\n  preferred_date: body.preferred_date || null,\n  preferred_time: body.preferred_time || null,\n  notes: body.notes || '',\n  session_id: body.session_id || ''\n};"
+      },
+      "name": "Extract Input",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "boolean": [
+                  {
+                    "value1": "={{$json.action}}",
+                    "operation": "equal",
+                    "value2": "get_slots"
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "get_slots"
+            },
+            {
+              "conditions": {
+                "boolean": [
+                  {
+                    "value1": "={{$json.action}}",
+                    "operation": "equal",
+                    "value2": "create"
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "create"
+            }
+          ]
+        }
+      },
+      "name": "Route by Action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Get available slots for next 7 days\n// Business hours: 9:00-18:00, 30-minute slots\n\nconst now = new Date();\nconst slots = [];\n\nfor (let day = 1; day <= 7; day++) {\n  const date = new Date(now);\n  date.setDate(date.getDate() + day);\n  \n  // Skip weekends\n  if (date.getDay() === 0 || date.getDay() === 6) continue;\n  \n  // Generate slots from 9:00 to 18:00\n  for (let hour = 9; hour < 18; hour++) {\n    for (let minute = 0; minute < 60; minute += 30) {\n      const slotDate = new Date(date);\n      slotDate.setHours(hour, minute, 0, 0);\n      \n      slots.push({\n        datetime: slotDate.toISOString(),\n        display: slotDate.toLocaleString('it-IT', {\n          weekday: 'long',\n          day: 'numeric',\n          month: 'long',\n          hour: '2-digit',\n          minute: '2-digit'\n        })\n      });\n    }\n  }\n}\n\nreturn { slots };"
+      },
+      "name": "Generate Available Slots",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [850, 200]
+    },
+    {
+      "parameters": {
+        "calendar": "primary",
+        "start": "={{$json.preferred_date}}",
+        "end": "={{new Date(new Date($json.preferred_date).getTime() + 30*60000).toISOString()}}",
+        "summary": "Esplorazione Strategica - {{$json.lead_name}}",
+        "description": "Call di Esplorazione Strategica con {{$json.lead_name}}{{$json.company ? ' (' + $json.company + ')' : ''}}\n\nNote: {{$json.notes}}\n\nSession ID: {{$json.session_id}}",
+        "attendees": "={{$json.lead_email}}",
+        "sendUpdates": "all",
+        "additionalFields": {
+          "conferenceDataVersion": 1
+        }
+      },
+      "name": "Create Calendar Event",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1,
+      "position": [850, 400],
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "4",
+          "name": "Google Calendar"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Parse calendar event response\nconst event = $input.item.json;\n\nconst startDate = new Date(event.start.dateTime);\nconst meetingLink = event.hangoutLink || event.htmlLink;\n\nreturn {\n  event_id: event.id,\n  call_date: startDate.toLocaleDateString('it-IT', {\n    weekday: 'long',\n    day: 'numeric',\n    month: 'long',\n    year: 'numeric'\n  }),\n  call_time: startDate.toLocaleTimeString('it-IT', {\n    hour: '2-digit',\n    minute: '2-digit'\n  }),\n  meeting_link: meetingLink,\n  lead_name: $node['Extract Input'].json.lead_name,\n  lead_email: $node['Extract Input'].json.lead_email,\n  session_id: $node['Extract Input'].json.session_id\n};"
+      },
+      "name": "Parse Event",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1050, 400]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Save booking to database\nINSERT INTO calendar_bookings (\n  session_id,\n  lead_email,\n  lead_name,\n  event_id,\n  call_datetime,\n  meeting_link,\n  status,\n  created_at\n) VALUES (\n  $1, $2, $3, $4, $5, $6, 'confirmed', NOW()\n)\nRETURNING *;",
+        "additionalFields": {
+          "values": "={{$json.session_id}},={{$json.lead_email}},={{$json.lead_name}},={{$json.event_id}},={{$node['Extract Input'].json.preferred_date}},={{$json.meeting_link}}"
+        }
+      },
+      "name": "Save Booking",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [1250, 400],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Demy PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": "={{$env.EMAIL_SENDER_WORKFLOW_ID}}",
+        "fieldsUi": {
+          "values": [
+            {
+              "name": "template",
+              "value": "call_confirmation"
+            },
+            {
+              "name": "lead_name",
+              "value": "={{$json.lead_name}}"
+            },
+            {
+              "name": "lead_email",
+              "value": "={{$json.lead_email}}"
+            },
+            {
+              "name": "call_date",
+              "value": "={{$json.call_date}}"
+            },
+            {
+              "name": "call_time",
+              "value": "={{$json.call_time}}"
+            },
+            {
+              "name": "meeting_link",
+              "value": "={{$json.meeting_link}}"
+            }
+          ]
+        }
+      },
+      "name": "Send Confirmation Email",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [1450, 400],
+      "notes": "Async call to email sender"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": true,\n  \"action\": \"create\",\n  \"event_id\": \"{{$node['Parse Event'].json.event_id}}\",\n  \"call_date\": \"{{$node['Parse Event'].json.call_date}}\",\n  \"call_time\": \"{{$node['Parse Event'].json.call_time}}\",\n  \"meeting_link\": \"{{$node['Parse Event'].json.meeting_link}}\"\n}"
+      },
+      "name": "Response Create",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1650, 400]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": true,\n  \"action\": \"get_slots\",\n  \"slots\": {{JSON.stringify($json.slots)}}\n}"
+      },
+      "name": "Response Get Slots",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1050, 200]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [[{ "node": "Extract Input", "type": "main", "index": 0 }]]
+    },
+    "Extract Input": {
+      "main": [[{ "node": "Route by Action", "type": "main", "index": 0 }]]
+    },
+    "Route by Action": {
+      "main": [
+        [{ "node": "Generate Available Slots", "type": "main", "index": 0 }],
+        [{ "node": "Create Calendar Event", "type": "main", "index": 0 }]
+      ]
+    },
+    "Generate Available Slots": {
+      "main": [[{ "node": "Response Get Slots", "type": "main", "index": 0 }]]
+    },
+    "Create Calendar Event": {
+      "main": [[{ "node": "Parse Event", "type": "main", "index": 0 }]]
+    },
+    "Parse Event": {
+      "main": [[{ "node": "Save Booking", "type": "main", "index": 0 }]]
+    },
+    "Save Booking": {
+      "main": [[{ "node": "Send Confirmation Email", "type": "main", "index": 0 }]]
+    },
+    "Send Confirmation Email": {
+      "main": [[{ "node": "Response Create", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2025-01-30T00:00:00.000Z",
+  "versionId": "1"
+}

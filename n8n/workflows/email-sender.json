@@ -1,0 +1,173 @@
+{
+  "name": "Aidemy Email Sender",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "email-sender",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "aidemy-email-sender"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Extract input data\nconst body = $input.item.json.body || $input.item.json;\n\nreturn {\n  template: body.template || 'generic',\n  recipient: body.recipient || '',\n  lead_id: body.lead_id || null,\n  lead_name: body.lead_name || '',\n  lead_email: body.lead_email || '',\n  company: body.company || '',\n  banec_score: body.banec_score || 0,\n  call_date: body.call_date || '',\n  call_time: body.call_time || '',\n  meeting_link: body.meeting_link || '',\n  docs_requested: body.docs_requested || []\n};"
+      },
+      "name": "Extract Input",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "boolean": [
+                  {
+                    "value1": "={{$json.template}}",
+                    "operation": "equal",
+                    "value2": "hot_lead_alert"
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "hot_lead_alert"
+            },
+            {
+              "conditions": {
+                "boolean": [
+                  {
+                    "value1": "={{$json.template}}",
+                    "operation": "equal",
+                    "value2": "call_confirmation"
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "call_confirmation"
+            },
+            {
+              "conditions": {
+                "boolean": [
+                  {
+                    "value1": "={{$json.template}}",
+                    "operation": "equal",
+                    "value2": "docs_request"
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "docs_request"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "name": "Route by Template",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Build Hot Lead Alert Email\nconst data = $input.item.json;\n\nconst subject = `🔥 Lead Caldo: ${data.lead_name} - BANEC ${data.banec_score}/25`;\n\nconst body = `\n<html>\n<head>\n  <style>\n    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }\n    .header { background: #ff6b35; color: white; padding: 20px; text-align: center; }\n    .content { padding: 20px; }\n    .score-box { background: #f4f4f4; padding: 15px; margin: 20px 0; border-left: 4px solid #ff6b35; }\n    .info-row { margin: 10px 0; }\n    .label { font-weight: bold; color: #555; }\n    .footer { background: #f4f4f4; padding: 15px; text-align: center; font-size: 12px; color: #777; }\n  </style>\n</head>\n<body>\n  <div class=\"header\">\n    <h1>🔥 Nuovo Lead Caldo!</h1>\n  </div>\n  \n  <div class=\"content\">\n    <p>Ciao Jack,</p>\n    <p>È appena arrivato un <strong>lead caldo</strong> dal chatbot Demy!</p>\n    \n    <div class=\"score-box\">\n      <h2>Punteggio BANEC: ${data.banec_score}/25</h2>\n      <p><strong>Status:</strong> HOT 🔥</p>\n    </div>\n    \n    <h3>Informazioni Lead:</h3>\n    <div class=\"info-row\"><span class=\"label\">Nome:</span> ${data.lead_name || 'N/A'}</div>\n    <div class=\"info-row\"><span class=\"label\">Email:</span> ${data.lead_email || 'N/A'}</div>\n    <div class=\"info-row\"><span class=\"label\">Azienda:</span> ${data.company || 'N/A'}</div>\n    \n    <h3>Prossimi passi:</h3>\n    <ul>\n      <li>Rivedi la conversazione completa nel database (Lead ID: ${data.lead_id})</li>\n      <li>Contatta il lead entro 24 ore per massimizzare la conversione</li>\n      <li>Proponi una call di Esplorazione Strategica</li>\n    </ul>\n    \n    <p><a href=\"https://n8n.jacoposabbacapetta.it/workflow/leads?lead_id=${data.lead_id}\" style=\"background: #ff6b35; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block; margin-top: 10px;\">Vedi Dettagli Lead</a></p>\n  </div>\n  \n  <div class=\"footer\">\n    <p>Questa email è stata generata automaticamente dal sistema Demy Chatbot.</p>\n    <p>Aidemy © 2025 - <a href=\"https://aidemy.it\">aidemy.it</a></p>\n  </div>\n</body>\n</html>\n`;\n\nreturn {\n  recipient: data.recipient || 'j.sabbacapetta@gmail.com',\n  subject: subject,\n  body: body,\n  template: 'hot_lead_alert'\n};"
+      },
+      "name": "Build Hot Lead Alert",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [850, 100]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Build Call Confirmation Email\nconst data = $input.item.json;\n\nconst subject = `Confermata: Call Esplorazione Strategica - ${data.call_date}`;\n\nconst body = `\n<html>\n<head>\n  <style>\n    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }\n    .header { background: #4a90e2; color: white; padding: 20px; text-align: center; }\n    .content { padding: 20px; }\n    .call-box { background: #f4f4f4; padding: 20px; margin: 20px 0; border-left: 4px solid #4a90e2; }\n    .button { background: #4a90e2; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block; margin-top: 15px; }\n    .footer { background: #f4f4f4; padding: 15px; text-align: center; font-size: 12px; color: #777; }\n  </style>\n</head>\n<body>\n  <div class=\"header\">\n    <h1>✅ Call Confermata!</h1>\n  </div>\n  \n  <div class=\"content\">\n    <p>Ciao ${data.lead_name},</p>\n    <p>La tua call di <strong>Esplorazione Strategica</strong> è stata confermata!</p>\n    \n    <div class=\"call-box\">\n      <h2>📅 Dettagli Appuntamento</h2>\n      <p><strong>Data:</strong> ${data.call_date}</p>\n      <p><strong>Ora:</strong> ${data.call_time}</p>\n      <p><strong>Durata:</strong> 30 minuti</p>\n      <p><strong>Link:</strong> <a href=\"${data.meeting_link}\">${data.meeting_link}</a></p>\n    </div>\n    \n    <h3>Cosa aspettarti:</h3>\n    <ul>\n      <li>✨ Analisi approfondita della tua sfida specifica</li>\n      <li>🎯 Identificazione opportunità di AI applicabile</li>\n      <li>🚀 Definizione dei prossimi passi concreti</li>\n    </ul>\n    \n    <h3>Come prepararti:</h3>\n    <p>Per massimizzare il valore della nostra sessione, ti consiglio di:</p>\n    <ul>\n      <li>Pensare agli obiettivi principali che vuoi raggiungere</li>\n      <li>Preparare domande specifiche sulla tua situazione</li>\n      <li>Avere a portata di mano esempi concreti delle tue sfide</li>\n    </ul>\n    \n    <p><a href=\"${data.meeting_link}\" class=\"button\">Unisciti alla Call</a></p>\n    \n    <p style=\"margin-top: 30px;\">A presto!</p>\n    <p><strong>Jack Sabba Capetta</strong><br>\n    Aidemy - Consulenza AI e Innovazione<br>\n    <a href=\"mailto:j.sabbacapetta@gmail.com\">j.sabbacapetta@gmail.com</a></p>\n  </div>\n  \n  <div class=\"footer\">\n    <p>Se hai bisogno di riprogrammare, rispondi a questa email.</p>\n    <p>Aidemy © 2025 - <a href=\"https://aidemy.it\">aidemy.it</a></p>\n  </div>\n</body>\n</html>\n`;\n\nreturn {\n  recipient: data.lead_email,\n  subject: subject,\n  body: body,\n  template: 'call_confirmation'\n};"
+      },
+      "name": "Build Call Confirmation",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Build Docs Request Email\nconst data = $input.item.json;\n\nconst subject = `Materiali Aidemy - Come richiesto`;\n\nconst body = `\n<html>\n<head>\n  <style>\n    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }\n    .header { background: #50c878; color: white; padding: 20px; text-align: center; }\n    .content { padding: 20px; }\n    .docs-box { background: #f9f9f9; padding: 15px; margin: 15px 0; border: 1px solid #ddd; border-radius: 5px; }\n    .button { background: #50c878; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block; margin: 5px 0; }\n    .footer { background: #f4f4f4; padding: 15px; text-align: center; font-size: 12px; color: #777; }\n  </style>\n</head>\n<body>\n  <div class=\"header\">\n    <h1>📄 Materiali Aidemy</h1>\n  </div>\n  \n  <div class=\"content\">\n    <p>Ciao ${data.lead_name || 'there'},</p>\n    <p>Come promesso, ecco i materiali che hai richiesto su Aidemy e i nostri servizi.</p>\n    \n    <div class=\"docs-box\">\n      <h3>📚 Documenti Inclusi:</h3>\n      <ul>\n        <li>📄 <strong>PDF Servizi Completo</strong> - Panoramica dei 6 pacchetti core</li>\n        <li>📊 <strong>Case Study</strong> - Progetti reali e risultati misurabili</li>\n        <li>🎯 <strong>One-pager Esplorazione Strategica</strong> - Come funziona la nostra sessione iniziale</li>\n      </ul>\n    </div>\n    \n    <p><a href=\"https://drive.google.com/drive/folders/aidemy-materials\" class=\"button\">📥 Scarica Materiali</a></p>\n    \n    <h3>🤔 Hai domande?</h3>\n    <p>Dopo aver letto i materiali, se vuoi approfondire o hai domande specifiche:</p>\n    <ul>\n      <li>💬 Torna sul chatbot per chiedere altro</li>\n      <li>📅 Prenota una call di Esplorazione Strategica (30 min, gratuita)</li>\n      <li>📧 Rispondi a questa email</li>\n    </ul>\n    \n    <p style=\"margin-top: 30px;\">A presto!</p>\n    <p><strong>Il team Aidemy</strong><br>\n    <a href=\"https://aidemy.it\">aidemy.it</a></p>\n  </div>\n  \n  <div class=\"footer\">\n    <p>Questa email contiene informazioni richieste tramite il chatbot Demy.</p>\n    <p>Aidemy © 2025 - <a href=\"https://aidemy.it\">aidemy.it</a></p>\n  </div>\n</body>\n</html>\n`;\n\nreturn {\n  recipient: data.lead_email,\n  subject: subject,\n  body: body,\n  template: 'docs_request'\n};"
+      },
+      "name": "Build Docs Request",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [850, 500]
+    },
+    {
+      "parameters": {
+        "fromEmail": "demy@aidemy.it",
+        "toEmail": "={{$json.recipient}}",
+        "subject": "={{$json.subject}}",
+        "emailType": "html",
+        "message": "={{$json.body}}",
+        "options": {}
+      },
+      "name": "Send Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [1050, 300],
+      "credentials": {
+        "smtp": {
+          "id": "3",
+          "name": "SMTP Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": true,\n  \"template\": \"{{$json.template}}\",\n  \"recipient\": \"{{$json.recipient}}\",\n  \"sent_at\": \"{{new Date().toISOString()}}\"\n}"
+      },
+      "name": "Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1250, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [[{ "node": "Extract Input", "type": "main", "index": 0 }]]
+    },
+    "Extract Input": {
+      "main": [[{ "node": "Route by Template", "type": "main", "index": 0 }]]
+    },
+    "Route by Template": {
+      "main": [
+        [{ "node": "Build Hot Lead Alert", "type": "main", "index": 0 }],
+        [{ "node": "Build Call Confirmation", "type": "main", "index": 0 }],
+        [{ "node": "Build Docs Request", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Hot Lead Alert": {
+      "main": [[{ "node": "Send Email", "type": "main", "index": 0 }]]
+    },
+    "Build Call Confirmation": {
+      "main": [[{ "node": "Send Email", "type": "main", "index": 0 }]]
+    },
+    "Build Docs Request": {
+      "main": [[{ "node": "Send Email", "type": "main", "index": 0 }]]
+    },
+    "Send Email": {
+      "main": [[{ "node": "Response", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2025-01-30T00:00:00.000Z",
+  "versionId": "1"
+}

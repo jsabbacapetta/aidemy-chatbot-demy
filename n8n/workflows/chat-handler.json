@@ -71,15 +71,39 @@
     {
       "parameters": {
         "method": "POST",
+        "url": "https://openrouter.ai/api/v1/embeddings",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openRouterApi",
+        "jsonParameters": true,
+        "bodyParametersJson": "={\n  \"model\": \"openai/text-embedding-3-small\",\n  \"input\": \"{{ $node['Extract Input'].json.message }}\"\n}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "name": "Generate Query Embedding",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1250, 300],
+      "credentials": {
+        "openRouterApi": {
+          "id": "2",
+          "name": "OpenRouter API"
+        }
+      },
+      "notes": "Generate embedding for user query using OpenRouter"
+    },
+    {
+      "parameters": {
+        "method": "POST",
         "url": "http://demy-qdrant:6333/collections/aidemy_knowledge/points/search",
         "jsonParameters": true,
-        "bodyParametersJson": "={\n  \"vector\": {{ $json.query_embedding }},\n  \"limit\": 5,\n  \"with_payload\": true\n}",
+        "bodyParametersJson": "={\n  \"vector\": {{ $json.data[0].embedding }},\n  \"limit\": 5,\n  \"with_payload\": true\n}",
         "options": {}
       },
       "name": "Qdrant Similarity Search",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 3,
-      "position": [1250, 300],
+      "position": [1450, 300],
       "notes": "Search for relevant knowledge base chunks"
     },
     {
@@ -89,7 +113,17 @@
       "name": "Format Context",
       "type": "n8n-nodes-base.function",
       "typeVersion": 1,
-      "position": [1450, 300]
+      "position": [1650, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Format chat history for GPT prompt\nconst history = $input.item.json;\n\nif (!history || !Array.isArray(history)) {\n  return { formatted_history: 'Nessuna conversazione precedente.' };\n}\n\nconst formatted = history.reverse().map(msg => {\n  return `${msg.role === 'user' ? 'Utente' : 'Assistente'}: ${msg.content}`;\n}).join('\\n');\n\nreturn { formatted_history: formatted };"
+      },
+      "name": "Format Chat History",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1250, 450],
+      "notes": "Format chat history for GPT prompt"
     },
     {
       "parameters": {
@@ -100,11 +134,11 @@
           "messageValues": [
             {
               "role": "system",
-              "content": "={{$node['Load System Prompt'].json.system_prompt}}"
+              "content": "={{$node['Load System Prompt'].json.system_prompt}}\n\n## KNOWLEDGE BASE\n{{$node['Format Context'].json.context}}"
             },
             {
               "role": "user",
-              "content": "=CONTEXT:\\n{{$json.context}}\\n\\nCHAT HISTORY:\\n{{$node['Get Chat History'].json}}\\n\\nUSER MESSAGE:\\n{{$node['Extract Input'].json.message}}"
+              "content": "=CONVERSAZIONE PRECEDENTE:\n{{$node['Format Chat History'].json.formatted_history}}\n\nDOMANDA UTENTE:\n{{$node['Extract Input'].json.message}}\n\nRispondi in modo naturale mantenendo il tono di voce descritto."
             }
           ]
         },
@@ -116,7 +150,7 @@
       "name": "Call GPT-4o",
       "type": "n8n-nodes-base.openRouter",
       "typeVersion": 1,
-      "position": [1650, 300],
+      "position": [1850, 300],
       "credentials": {
         "openRouterApi": {
           "id": "2",
@@ -135,37 +169,49 @@
       "name": "Save Assistant Message",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 1,
-      "position": [1850, 300]
-    },
-    {
-      "parameters": {
-        "respondWith": "json",
-        "responseBody": "={\n  \"message\": \"{{$json.choices[0].message.content}}\",\n  \"session_id\": \"{{$node['Extract Input'].json.session_id}}\",\n  \"timestamp\": \"{{new Date().toISOString()}}\"\n}"
-      },
-      "name": "Response",
-      "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1,
       "position": [2050, 300]
     },
     {
       "parameters": {
-        "functionCode": "// Load system prompt from YAML config\nconst fs = require('fs');\nconst yaml = require('yaml');\n\nconst config = yaml.parse(\n  fs.readFileSync('/app/config/prompts.yaml', 'utf8')\n);\n\nreturn config;"
+        "respondWith": "json",
+        "responseBody": "={\n  \"message\": \"{{$node['Call GPT-4o'].json.choices[0].message.content}}\",\n  \"session_id\": \"{{$node['Extract Input'].json.session_id}}\",\n  \"timestamp\": \"{{new Date().toISOString()}}\"\n}"
+      },
+      "name": "Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2250, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// System prompt for Demy chatbot\nconst system_prompt = `Sei l'assistente AI di Aidemy, un consulente che aiuta le organizzazioni a navigare il cambiamento.\nIl tuo nome è Demy e il tuo ruolo è qualificare lead e guidarli verso l'Esplorazione Strategica.\n\n## TONO DI VOCE\nIncarna l'archetipo \"Angelo Custode con elementi del Mago\":\n- **Angelo Custode**: Accogliente, rassicurante, orientato al benessere dell'utente\n- **Mago**: Saggio ma non pedante, capace di rendere semplice il complesso\n- **Voice traits**:\n  - Saggezza senza pedanteria\n  - Empatia diretta (non paternalismo)\n  - Autorevolezza informale (non imposizione)\n\n## OBIETTIVI PRIMARI\n1. Rispondere alle domande sui servizi Aidemy usando la knowledge base fornita\n2. Qualificare il lead raccogliendo in modo naturale:\n   - Nome\n   - Email\n   - Azienda (opzionale)\n   - Sfida/bisogno principale\n   - Timeline prevista\n3. Proporre la prenotazione di una call di Esplorazione Strategica quando appropriato\n4. Offrire l'invio di materiali di approfondimento via email\n\n## LINEE GUIDA\n- Rispondi in italiano in modo naturale e conversazionale\n- Cita sempre le fonti quando usi la knowledge base (es: \"Secondo il documento X...\")\n- Non inventare informazioni: se non sai qualcosa, ammettilo e offri di far contattare l'utente da Jack\n- Guida gentilmente verso l'azione (prenotare call o ricevere materiali) senza essere insistente\n- Mantieni le risposte concise (2-4 frasi) ma complete\n- Usa esempi concreti quando possibile\n- Non usare emoji a meno che l'utente non le usi`;\n\nreturn { system_prompt };"
       },
       "name": "Load System Prompt",
       "type": "n8n-nodes-base.function",
       "typeVersion": 1,
       "position": [850, 150],
-      "notes": "Load prompts from config/prompts.yaml"
+      "notes": "System prompt for Demy chatbot"
     },
     {
       "parameters": {
-        "workflowId": "lead-qualifier-workflow-id"
+        "workflowId": "={{$env.LEAD_QUALIFIER_WORKFLOW_ID}}",
+        "fieldsUi": {
+          "values": [
+            {
+              "name": "session_id",
+              "value": "={{$node['Extract Input'].json.session_id}}"
+            },
+            {
+              "name": "conversation_id",
+              "value": "={{$node['Get/Create Conversation'].json.id}}"
+            }
+          ]
+        }
       },
       "name": "Trigger Lead Qualification",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1,
-      "position": [2050, 450],
-      "notes": "Async call to lead qualifier"
+      "position": [2250, 450],
+      "notes": "Async call to lead qualifier after every 3rd message"
     }
   ],
   "connections": {
@@ -185,12 +231,21 @@
       "main": [[{ "node": "Get Chat History", "type": "main", "index": 0 }]]
     },
     "Get Chat History": {
+      "main": [[
+        { "node": "Generate Query Embedding", "type": "main", "index": 0 },
+        { "node": "Format Chat History", "type": "main", "index": 0 }
+      ]]
+    },
+    "Generate Query Embedding": {
       "main": [[{ "node": "Qdrant Similarity Search", "type": "main", "index": 0 }]]
     },
     "Qdrant Similarity Search": {
       "main": [[{ "node": "Format Context", "type": "main", "index": 0 }]]
     },
     "Format Context": {
+      "main": [[{ "node": "Call GPT-4o", "type": "main", "index": 0 }]]
+    },
+    "Format Chat History": {
       "main": [[{ "node": "Call GPT-4o", "type": "main", "index": 0 }]]
     },
     "Call GPT-4o": {

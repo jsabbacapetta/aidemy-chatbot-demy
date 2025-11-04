@@ -1,0 +1,197 @@
+{
+  "name": "Aidemy Analytics Tracker",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "analytics-tracker",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "aidemy-analytics-tracker"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Extract analytics event data\nconst body = $input.item.json.body || $input.item.json;\n\nreturn {\n  event_type: body.event_type || 'unknown',\n  session_id: body.session_id || null,\n  user_id: body.user_id || null,\n  conversation_id: body.conversation_id || null,\n  metadata: body.metadata || {},\n  timestamp: body.timestamp || new Date().toISOString()\n};"
+      },
+      "name": "Extract Event Data",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Save analytics event\nINSERT INTO analytics_events (\n  event_type,\n  session_id,\n  user_id,\n  conversation_id,\n  metadata,\n  created_at\n) VALUES (\n  $1, $2, $3, $4, $5::jsonb, $6\n)\nRETURNING *;",
+        "additionalFields": {
+          "values": "={{$json.event_type}},={{$json.session_id}},={{$json.user_id}},={{$json.conversation_id}},={{JSON.stringify($json.metadata)}},={{$json.timestamp}}"
+        }
+      },
+      "name": "Save Event",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [650, 300],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Demy PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "boolean": [
+                  {
+                    "value1": "={{$json.event_type}}",
+                    "operation": "equal",
+                    "value2": "conversation_started"
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "conversation_started"
+            },
+            {
+              "conditions": {
+                "boolean": [
+                  {
+                    "value1": "={{$json.event_type}}",
+                    "operation": "equal",
+                    "value2": "lead_qualified"
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "lead_qualified"
+            },
+            {
+              "conditions": {
+                "boolean": [
+                  {
+                    "value1": "={{$json.event_type}}",
+                    "operation": "equal",
+                    "value2": "call_booked"
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "call_booked"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "name": "Route by Event Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Increment conversation counter\nINSERT INTO analytics_daily_stats (date, conversations_started, updated_at)\nVALUES (CURRENT_DATE, 1, NOW())\nON CONFLICT (date)\nDO UPDATE SET\n  conversations_started = analytics_daily_stats.conversations_started + 1,\n  updated_at = NOW()\nRETURNING *;",
+        "additionalFields": {}
+      },
+      "name": "Update Conversation Stats",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [1050, 150],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Demy PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Increment lead qualified counter\nINSERT INTO analytics_daily_stats (date, leads_qualified, updated_at)\nVALUES (CURRENT_DATE, 1, NOW())\nON CONFLICT (date)\nDO UPDATE SET\n  leads_qualified = analytics_daily_stats.leads_qualified + 1,\n  updated_at = NOW()\nRETURNING *;",
+        "additionalFields": {}
+      },
+      "name": "Update Lead Stats",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [1050, 300],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Demy PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Increment call booked counter\nINSERT INTO analytics_daily_stats (date, calls_booked, updated_at)\nVALUES (CURRENT_DATE, 1, NOW())\nON CONFLICT (date)\nDO UPDATE SET\n  calls_booked = analytics_daily_stats.calls_booked + 1,\n  updated_at = NOW()\nRETURNING *;",
+        "additionalFields": {}
+      },
+      "name": "Update Call Stats",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [1050, 450],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Demy PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": true,\n  \"event_type\": \"{{$node['Extract Event Data'].json.event_type}}\",\n  \"event_id\": \"{{$node['Save Event'].json.id}}\",\n  \"timestamp\": \"{{$node['Extract Event Data'].json.timestamp}}\"\n}"
+      },
+      "name": "Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1250, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [[{ "node": "Extract Event Data", "type": "main", "index": 0 }]]
+    },
+    "Extract Event Data": {
+      "main": [[{ "node": "Save Event", "type": "main", "index": 0 }]]
+    },
+    "Save Event": {
+      "main": [[{ "node": "Route by Event Type", "type": "main", "index": 0 }]]
+    },
+    "Route by Event Type": {
+      "main": [
+        [{ "node": "Update Conversation Stats", "type": "main", "index": 0 }],
+        [{ "node": "Update Lead Stats", "type": "main", "index": 0 }],
+        [{ "node": "Update Call Stats", "type": "main", "index": 0 }],
+        [{ "node": "Response", "type": "main", "index": 0 }]
+      ]
+    },
+    "Update Conversation Stats": {
+      "main": [[{ "node": "Response", "type": "main", "index": 0 }]]
+    },
+    "Update Lead Stats": {
+      "main": [[{ "node": "Response", "type": "main", "index": 0 }]]
+    },
+    "Update Call Stats": {
+      "main": [[{ "node": "Response", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2025-01-30T00:00:00.000Z",
+  "versionId": "1"
+}

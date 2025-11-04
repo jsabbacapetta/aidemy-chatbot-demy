@@ -1,0 +1,275 @@
+{
+  "name": "Aidemy Lead Qualifier",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lead-qualifier",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "aidemy-lead-qualifier"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Extract input data\nconst body = $input.item.json.body || $input.item.json;\n\nreturn {\n  session_id: body.session_id || '',\n  conversation_id: body.conversation_id || ''\n};"
+      },
+      "name": "Extract Input",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Get conversation with all messages\nSELECT \n  c.id as conversation_id,\n  c.session_id,\n  c.user_id,\n  c.message_count,\n  json_agg(\n    json_build_object(\n      'role', m.role,\n      'content', m.content,\n      'created_at', m.created_at\n    ) ORDER BY m.created_at ASC\n  ) as messages\nFROM conversations c\nLEFT JOIN messages m ON m.conversation_id = c.id\nWHERE c.id = $1\nGROUP BY c.id;",
+        "additionalFields": {
+          "values": "={{$json.conversation_id}}"
+        }
+      },
+      "name": "Get Conversation",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [650, 300],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Demy PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Format conversation for GPT analysis\nconst data = $input.item.json[0];\nconst messages = data.messages || [];\n\nconst formatted = messages.map(m => {\n  return `${m.role === 'user' ? 'Utente' : 'Assistente'}: ${m.content}`;\n}).join('\\n\\n');\n\nreturn {\n  conversation_id: data.conversation_id,\n  session_id: data.session_id,\n  message_count: data.message_count,\n  conversation_text: formatted\n};"
+      },
+      "name": "Format Conversation",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "operation": "create",
+        "modelId": "openai/gpt-4o",
+        "messages": {
+          "messageValues": [
+            {
+              "role": "system",
+              "content": "Sei un esperto di lead qualification. Analizza conversazioni e estrai informazioni strutturate."
+            },
+            {
+              "role": "user",
+              "content": "=Analizza la seguente conversazione e estrai le informazioni del lead in formato JSON.\n\nCONVERSAZIONE:\n{{$json.conversation_text}}\n\nEstrai e ritorna SOLO un oggetto JSON con questa struttura (usa null per campi non disponibili):\n{\n  \"name\": \"nome completo\",\n  \"email\": \"email\",\n  \"company\": \"nome azienda\",\n  \"role\": \"ruolo\",\n  \"company_size\": \"<50\" | \"50-250\" | \">250\" | null,\n  \"challenge\": \"descrizione sfida principale\",\n  \"timeline\": \"tempistiche menzionate\"\n}"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.3,
+          "maxTokens": 300,
+          "responseFormat": "json_object"
+        }
+      },
+      "name": "Extract Lead Info",
+      "type": "n8n-nodes-base.openRouter",
+      "typeVersion": 1,
+      "position": [1050, 300],
+      "credentials": {
+        "openRouterApi": {
+          "id": "2",
+          "name": "OpenRouter API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Parse lead info from GPT response\nconst content = $input.item.json.choices[0].message.content;\nconst leadInfo = JSON.parse(content);\n\nreturn {\n  ...leadInfo,\n  conversation_id: $node['Format Conversation'].json.conversation_id,\n  session_id: $node['Format Conversation'].json.session_id,\n  conversation_text: $node['Format Conversation'].json.conversation_text\n};"
+      },
+      "name": "Parse Lead Info",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "operation": "create",
+        "modelId": "openai/gpt-4o",
+        "messages": {
+          "messageValues": [
+            {
+              "role": "system",
+              "content": "Sei un esperto di lead scoring con metodo BANEC. Assegna punteggi da 1 a 5 per ogni criterio basandoti sulla conversazione."
+            },
+            {
+              "role": "user",
+              "content": "=Analizza questa conversazione e assegna un punteggio BANEC (1-5 per ogni criterio).\n\nCRITERI:\n1. **Budget** (1-5): Inferisci dalla dimensione azienda e domande sui costi\n   - 1: Nessun segnale, probabilmente budget basso\n   - 3: Segnali misti o azienda media\n   - 5: Azienda grande o domande che indicano budget disponibile\n\n2. **Authority** (1-5): Determinato dal ruolo\n   - 1: Ruolo non chiaro o basso livello\n   - 3: Manager o ruolo medio\n   - 5: CEO, Founder, C-level\n\n3. **Necessity** (1-5): Chiarezza della sfida\n   - 1: Sfida vaga o non espressa\n   - 3: Sfida identificata ma non urgente\n   - 5: Sfida chiara e ben articolata\n\n4. **Emergency** (1-5): Urgenza della timeline\n   - 1: Esplorazione vaga, nessuna urgenza\n   - 3: Timeline media (entro 3 mesi)\n   - 5: Urgenza immediata (subito, ASAP)\n\n5. **Compatibility** (1-5): Qualità della conversazione\n   - 1: Conversazione breve o disinteressata\n   - 3: Conversazione normale\n   - 5: Conversazione approfondita, domande di qualità\n\nCONVERSAZIONE:\n{{$json.conversation_text}}\n\nLEAD INFO:\nNome: {{$json.name}}\nEmail: {{$json.email}}\nAzienda: {{$json.company}}\nRuolo: {{$json.role}}\nDimensione: {{$json.company_size}}\nSfida: {{$json.challenge}}\nTimeline: {{$json.timeline}}\n\nRitorna SOLO un oggetto JSON:\n{\n  \"budget\": 1-5,\n  \"authority\": 1-5,\n  \"necessity\": 1-5,\n  \"emergency\": 1-5,\n  \"compatibility\": 1-5,\n  \"reasoning\": \"breve spiegazione delle scelte\"\n}"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.3,
+          "maxTokens": 400,
+          "responseFormat": "json_object"
+        }
+      },
+      "name": "Calculate BANEC Score",
+      "type": "n8n-nodes-base.openRouter",
+      "typeVersion": 1,
+      "position": [1450, 300],
+      "credentials": {
+        "openRouterApi": {
+          "id": "2",
+          "name": "OpenRouter API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Parse BANEC score and calculate total\nconst content = $input.item.json.choices[0].message.content;\nconst banec = JSON.parse(content);\n\nconst totalScore = banec.budget + banec.authority + banec.necessity + banec.emergency + banec.compatibility;\n\nlet status = 'cold';\nif (totalScore >= 18) {\n  status = 'hot';\n} else if (totalScore >= 12) {\n  status = 'warm';\n}\n\nconst leadInfo = $node['Parse Lead Info'].json;\n\nreturn {\n  conversation_id: leadInfo.conversation_id,\n  session_id: leadInfo.session_id,\n  name: leadInfo.name,\n  email: leadInfo.email,\n  company: leadInfo.company,\n  role: leadInfo.role,\n  company_size: leadInfo.company_size,\n  challenge: leadInfo.challenge,\n  timeline: leadInfo.timeline,\n  banec_budget: banec.budget,\n  banec_authority: banec.authority,\n  banec_necessity: banec.necessity,\n  banec_emergency: banec.emergency,\n  banec_compatibility: banec.compatibility,\n  banec_total: totalScore,\n  banec_reasoning: banec.reasoning,\n  status: status\n};"
+      },
+      "name": "Calculate Total Score",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1650, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Insert or update lead\nINSERT INTO leads (\n  conversation_id,\n  session_id,\n  name,\n  email,\n  company,\n  role,\n  company_size,\n  challenge,\n  timeline,\n  banec_budget,\n  banec_authority,\n  banec_necessity,\n  banec_emergency,\n  banec_compatibility,\n  banec_total,\n  banec_reasoning,\n  status,\n  qualified_at\n) VALUES (\n  $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW()\n)\nON CONFLICT (conversation_id)\nDO UPDATE SET\n  name = EXCLUDED.name,\n  email = EXCLUDED.email,\n  company = EXCLUDED.company,\n  role = EXCLUDED.role,\n  company_size = EXCLUDED.company_size,\n  challenge = EXCLUDED.challenge,\n  timeline = EXCLUDED.timeline,\n  banec_budget = EXCLUDED.banec_budget,\n  banec_authority = EXCLUDED.banec_authority,\n  banec_necessity = EXCLUDED.banec_necessity,\n  banec_emergency = EXCLUDED.banec_emergency,\n  banec_compatibility = EXCLUDED.banec_compatibility,\n  banec_total = EXCLUDED.banec_total,\n  banec_reasoning = EXCLUDED.banec_reasoning,\n  status = EXCLUDED.status,\n  updated_at = NOW()\nRETURNING *;",
+        "additionalFields": {
+          "values": "={{$json.conversation_id}},={{$json.session_id}},={{$json.name}},={{$json.email}},={{$json.company}},={{$json.role}},={{$json.company_size}},={{$json.challenge}},={{$json.timeline}},={{$json.banec_budget}},={{$json.banec_authority}},={{$json.banec_necessity}},={{$json.banec_emergency}},={{$json.banec_compatibility}},={{$json.banec_total}},={{$json.banec_reasoning}},={{$json.status}}"
+        }
+      },
+      "name": "Save Lead",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [1850, 300],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Demy PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.status}}",
+              "operation": "equal",
+              "value2": "hot"
+            }
+          ]
+        }
+      },
+      "name": "Is Hot Lead?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [2050, 300]
+    },
+    {
+      "parameters": {
+        "workflowId": "={{$env.EMAIL_SENDER_WORKFLOW_ID}}",
+        "fieldsUi": {
+          "values": [
+            {
+              "name": "template",
+              "value": "hot_lead_alert"
+            },
+            {
+              "name": "recipient",
+              "value": "j.sabbacapetta@gmail.com"
+            },
+            {
+              "name": "lead_id",
+              "value": "={{$json.id}}"
+            },
+            {
+              "name": "lead_name",
+              "value": "={{$json.name}}"
+            },
+            {
+              "name": "lead_email",
+              "value": "={{$json.email}}"
+            },
+            {
+              "name": "company",
+              "value": "={{$json.company}}"
+            },
+            {
+              "name": "banec_score",
+              "value": "={{$json.banec_total}}"
+            }
+          ]
+        }
+      },
+      "name": "Send Hot Lead Alert",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [2250, 200],
+      "notes": "Async call to email sender for hot leads"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": true,\n  \"lead_id\": \"{{$json.id}}\",\n  \"status\": \"{{$json.status}}\",\n  \"banec_total\": {{$json.banec_total}}\n}"
+      },
+      "name": "Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2450, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [[{ "node": "Extract Input", "type": "main", "index": 0 }]]
+    },
+    "Extract Input": {
+      "main": [[{ "node": "Get Conversation", "type": "main", "index": 0 }]]
+    },
+    "Get Conversation": {
+      "main": [[{ "node": "Format Conversation", "type": "main", "index": 0 }]]
+    },
+    "Format Conversation": {
+      "main": [[{ "node": "Extract Lead Info", "type": "main", "index": 0 }]]
+    },
+    "Extract Lead Info": {
+      "main": [[{ "node": "Parse Lead Info", "type": "main", "index": 0 }]]
+    },
+    "Parse Lead Info": {
+      "main": [[{ "node": "Calculate BANEC Score", "type": "main", "index": 0 }]]
+    },
+    "Calculate BANEC Score": {
+      "main": [[{ "node": "Calculate Total Score", "type": "main", "index": 0 }]]
+    },
+    "Calculate Total Score": {
+      "main": [[{ "node": "Save Lead", "type": "main", "index": 0 }]]
+    },
+    "Save Lead": {
+      "main": [[{ "node": "Is Hot Lead?", "type": "main", "index": 0 }]]
+    },
+    "Is Hot Lead?": {
+      "main": [
+        [{ "node": "Send Hot Lead Alert", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Send Hot Lead Alert": {
+      "main": [[{ "node": "Response", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2025-01-30T00:00:00.000Z",
+  "versionId": "1"
+}
